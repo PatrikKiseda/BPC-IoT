@@ -16,12 +16,10 @@ SOCK_CLIENT = BG77.SOCK_CLIENT
 #===========================================================================#
 
 # NeoPixel on Pin28
-rgb_led = neopixel.NeoPixel(Pin(28), 1)
+rgb_led = neopixel.NeoPixel(Pin(16), 1, bpp=4)
 
 # Physical button & fallback LED (unused, but still there)
 BUTTON = Pin(6, Pin.IN)
-LED    = Pin(16, Pin.OUT)
-LED.value(0)
 
 #===========================================================================#
 #––– NON-BLOCKING LED STATE MACHINE –––––––––––––––––––––––––––––––––––––
@@ -30,25 +28,25 @@ LED.value(0)
 _led_state = None
 _led_timer = Timer(-1)
 
-def _write_color(r, g, b):
-    rgb_led[0] = (int(255*r), int(255*g), int(255*b))
+def _write_color(r, g, b, w):
+    rgb_led[0] = (int(255*r), int(255*g), int(255*b), int(255*w))
     rgb_led.write()
 
 def _led_blink(color, period_ms):
     # toggle between color and off
-    if rgb_led[0] == (0,0,0):
+    if rgb_led[0] == (0,0,0,0):
         _write_color(*color)
     else:
-        _write_color(0,0,0)
+        _write_color(0,0,0,0)
 
 def _led_handler(timer):
     # called every PERIOD ms to update the LED
     if _led_state == "opening":
-        _led_blink((0,1,0), PERIOD)
+        _led_blink((0,1,0,0), PERIOD)
     elif _led_state == "closing":
-        _led_blink((0,0,1), PERIOD)
+        _led_blink((0,0,1,0), PERIOD)
     elif _led_state == "waiting":
-        _led_blink((1,0,0), PERIOD)
+        _led_blink((1,0,0,0), PERIOD)
     # solid states do not toggle here
 
 def set_led(state):
@@ -69,23 +67,23 @@ def set_led(state):
         _led_timer.init(period=PERIOD, mode=Timer.PERIODIC,
                         callback=_led_handler)
     elif state == "open":
-        _write_color(0,1,0)
+        _write_color(0,1,0,0)
         time.sleep(DUR)           # short pause
-        _write_color(0,0,0)
+        _write_color(0,0,0,0)
         _led_state = None
     elif state == "closed":
-        _write_color(0,0,1)
+        _write_color(0,0,1,0)
         time.sleep(DUR)
-        _write_color(0,0,0)
+        _write_color(0,0,0,0)
         _led_state = None
     elif state == "fail":
-        _write_color(1,0,0)
+        _write_color(1,0,0,0)
         time.sleep(DUR)
-        _write_color(0,0,0)
+        _write_color(0,0,0,0)
         _led_state = None
     else:
         # any other = off
-        _write_color(0,0,0)
+        _write_color(0,0,0,0)
 
 # you can tweak these to your taste:
 PERIOD = 300   # ms blink period
@@ -238,4 +236,3 @@ def irq_handler(pin):
     print("←", resp)
 
 BUTTON.irq(handler=irq_handler, trigger=Pin.IRQ_FALLING)
-
