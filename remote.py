@@ -16,7 +16,7 @@ SOCK_CLIENT = BG77.SOCK_CLIENT
 #===========================================================================#
 
 # NeoPixel on Pin28
-rgb_led = neopixel.NeoPixel(Pin(16), 1)
+rgb_led = neopixel.NeoPixel(Pin(28), 1)
 
 # Physical button & fallback LED (unused, but still there)
 BUTTON = Pin(6, Pin.IN)
@@ -168,37 +168,48 @@ def button_handler(pin):
 #––– UDP OVER NB-IOT –––––––––––––––––––––––––––––––––––––––––––––––––────
 #===========================================================================#
 
-def udp_handler(msg:str):
-    # start the red‐blink
+def udp_handler(msg: str):
     set_led("waiting")
 
     ok, sock = modem.socket(AF_INET, SOCK_DGRAM, socket_mode=SOCK_CLIENT)
     if not ok:
-        print("socket() failed")
         return _fail_and_return()
 
     if not sock.connect(creds.UDP_SERVER_IP,
                         creds.UDP_SERVER_PORT,
                         creds.UDP_PRIVATE_PORT):
-        print("connect() failed")
         sock.close()
         return _fail_and_return()
 
     if not sock.send(msg):
-        print("send() failed")
         sock.close()
         return _fail_and_return()
 
-    sock.settimeout(2)
-    length, data = sock.recv(1460)
+    # —— wait for a stream of replies ——————————————
+    sock.settimeout(5)                 # 5 s between packets
+    finished = False
+    t_end = time.time() + 15           # overall 15 s window
+
+    while time.time() < t_end and not finished:
+        try:
+            length, data = sock.recv(1460)
+        except Exception:
+            break                      # timeout
+        if length:
+            rec = data.strip().upper()
+            print("RX:", rec)
+            dispatch(rec)              # update LEDs
+
+            # stop once we hit a final state
+            if rec in ("OPEN", "CLOSED"):
+                finished = True
+
     sock.close()
 
-    if length and data:
-        rec = data.strip().upper()
-        dispatch(rec)
-        return rec
-    else:
-        return _fail_and_return()
+    if not finished:
+        return _fail_and_return()      # still in transition → treat as fail
+
+    return rec                         # return the final state
 
 def _fail_and_return():
     set_led("fail")
