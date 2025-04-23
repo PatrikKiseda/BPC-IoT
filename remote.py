@@ -13,7 +13,9 @@ import time
 import socket
 from machine import Pin, I2C
 import random
+import neopixel
 
+rgb_led = neopixel.NeoPixel(machine.Pin(28),1)
 
 BUTTON = Pin(6, Pin.IN)
 LED = Pin(16, Pin.OUT)
@@ -24,22 +26,69 @@ DEBOUNCE_MS = 50
 
 sta_if = network.WLAN(network.STA_IF) 
 
-def led_tx():                   # TX started
-    LED.value(1)
-    time.sleep_ms(60)
-    LED.value(0)
+def _set_rgb(r: float, g: float, b: float):
+    
+    rgb_led[0] = (int(255 * r), int(255 * g), int(255 * b))
+    rgb_led.write()
 
-def led_ok():                   # success
-    LED.value(1)
-    time.sleep_ms(500)
-    LED.value(0)
 
-def led_not_ok():                 # timeout
-    for _ in range(3):
-        LED.value(1)
-        time.sleep_ms(200)
-        LED.value(0)
-        time.sleep_ms(200)
+def _blink(col, on_ms=200, off_ms=200, duration_ms=0):
+    start = time.ticks_ms()
+    while True:
+        _set_rgb(*col)            # LED ON
+        time.sleep_ms(on_ms)
+        _set_rgb(0, 0, 0)         # LED OFF
+        time.sleep_ms(off_ms)
+
+        if duration_ms and time.ticks_diff(time.ticks_ms(), start) >= duration_ms:
+            break
+
+
+# Public light-state primitives ----------------------------------------------
+def gate_opening(duration_s=3):
+    _blink((0, 1, 0), duration_ms=int(duration_s * 1000))
+
+
+def gate_open(duration_s=3):
+    _set_rgb(0, 1, 0)
+    time.sleep(duration_s)
+    _set_rgb(0, 0, 0)
+
+
+def gate_closing(duration_s=3):
+    _blink((0, 0, 1), duration_ms=int(duration_s * 1000))
+
+
+def gate_closed(duration_s=3):
+    _set_rgb(0, 0, 1)
+    time.sleep(duration_s)
+    _set_rgb(0, 0, 0)
+
+
+def waiting_for_server(blink_ms=300):
+    global _waiting
+    _waiting = True
+    try:
+        while _waiting:
+            _set_rgb(1, 0, 0)
+            time.sleep_ms(blink_ms)
+            _set_rgb(0, 0, 0)
+            time.sleep_ms(blink_ms)
+    finally:
+        _set_rgb(0, 0, 0)
+
+
+def fail_LED(duration_s=3):
+    _set_rgb(1, 0, 0)
+    time.sleep(duration_s)
+    _set_rgb(0, 0, 0)
+
+
+def stop_led():
+    global _waiting
+    _waiting = False
+    _set_rgb(0, 0, 0)
+
 
 def wlan_handler():
     if not sta_if.isconnected():
@@ -88,7 +137,7 @@ def button_handler(button):
         return "action"
 
 def udp_handler(data):
-    led_tx()   
+    waiting_for_server()  
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     port = random.randint(49152,65535)
     sock.bind(("0.0.0.0", port))
@@ -104,15 +153,25 @@ def udp_handler(data):
     try:
         pre_rec_data, clientsocket = sock.recvfrom(1460)
         if clientsocket[0] == creds.UDP_SERVER_IP and clientsocket[1] == creds.UDP_SERVER_PORT:
+            stop_led()
             rec_data = pre_rec_data.decode()
     except:
         pass
-    
+
     sock.close()
     if rec_data:
-        led_ok()                               
+        if rec_data == "OPENING":
+            gate_opening()
+        elif rec_data == "OPEN":
+            gate_open()
+        elif rec_data == "CLOSING":
+            gate_closing()
+        elif rec_data == "CLOSED":
+            gate_closed()
+        else:
+            print("Unknown response from server:", rec_data)
     else:
-        led_not_ok()  
+        fail_LED()
     return rec_data  
     
 
