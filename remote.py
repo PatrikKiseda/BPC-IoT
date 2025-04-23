@@ -104,11 +104,7 @@ pwr.value(0)
 time.sleep(2)
 
 # 2) UART SETUP — big RX buffer so we can always read
-bg_uart = UART(0,
-               baudrate=115200,
-               tx=Pin(0),
-               rx=Pin(1),
-               rxbuf=512)      # ← match their rxbuf=256, but you can use 512
+bg_uart = UART(0,baudrate=115200,tx=Pin(0),rx=Pin(1),rxbuf=512)      # ← match their rxbuf=256, but you can use 512
 
 # 3) PRIME THE PIPELINE: send a raw AT and read the reply
 bg_uart.write(b"AT\r\n")
@@ -122,10 +118,16 @@ modem = BG77.BG77(bg_uart, verbose=True, radio=False)
 modem.sendCommand('AT+QCFG="band",0x0,0x80084,0x80084,1\r\n')
 modem.setRadio(1)
 modem.setAPN(creds.APN)
+modem.sendCommand("AT+CIMI\r\n")
+modem.sendCommand("AT+CSQ\r\n")
+modem.sendCommand("AT+COPS?\r\n")
+modem.sendCommand("AT+CEREG?\r\n")
+modem.sendCommand("AT+QNWINFO\r\n")
 print("…complete, BG77 is live")
+modem.setOperator(1,"23003")
 print("Attaching to NB-IoT…", end="")
-if not modem.attachToNetwork():
-    raise RuntimeError("BG77 attach failed")
+if not modem.isRegistered():
+    time.sleep(1)
 print(" ✓ attached")
 
 #===========================================================================#
@@ -225,3 +227,4 @@ def irq_handler(pin):
     print("←", resp)
 
 BUTTON.irq(handler=irq_handler, trigger=Pin.IRQ_FALLING)
+
