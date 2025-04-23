@@ -95,12 +95,34 @@ DUR    = 3     # seconds for the “open”, “closed” and “fail” hold
 #––– BG77 MODEM SETUP ––––––––––––––––––––––––––––––––––––––––––––––––––––
 #===========================================================================#
 
-# UART0 → BG77
-bg_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
-modem   = BG77.BG77(bg_uart, verbose=False)
+pwr = Pin(9, Pin.OUT, value=0)
+# toggle PWRKEY high for 300ms, then low
+pwr.value(1)
+time.sleep_ms(300)
+pwr.value(0)
+# give it a couple of seconds to boot
+time.sleep(2)
 
-# configure APN & attach
+# 2) UART SETUP — big RX buffer so we can always read
+bg_uart = UART(0,
+               baudrate=115200,
+               tx=Pin(0),
+               rx=Pin(1),
+               rxbuf=512)      # ← match their rxbuf=256, but you can use 512
+
+# 3) PRIME THE PIPELINE: send a raw AT and read the reply
+bg_uart.write(b"AT\r\n")
+time.sleep_ms(200)
+print("warm AT reply:", bg_uart.read(64))   # you should see b'BG77...\\r\\nOK\\r\\n'
+
+# 4) INSTANTIATE *exactly* like in class
+modem = BG77.BG77(bg_uart, verbose=True, radio=False)
+
+# 5) now you can do your band/APN/radio bring-up
+modem.sendCommand('AT+QCFG="band",0x0,0x80084,0x80084,1\r\n')
+modem.setRadio(1)
 modem.setAPN(creds.APN)
+print("…complete, BG77 is live")
 print("Attaching to NB-IoT…", end="")
 if not modem.attachToNetwork():
     raise RuntimeError("BG77 attach failed")
