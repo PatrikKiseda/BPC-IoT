@@ -1,217 +1,205 @@
-# creds.py 
-#WIFI_SSID = ""
-#WIFI_PWD  = ""
-#
-#UDP_SERVER_IP = ""
-#UDP_SERVER_PORT = 5018
-#ID = 5656
-
+# remote.py
 
 import time
-import socket
-import random
 import neopixel
-from machine import Pin
-from network import LTE
+from machine import Pin, UART, Timer
 import creds_remote as creds
+import BG77
 
-rgb_led = neopixel.NeoPixel(machine.Pin(28),1)
+# socket constants from the BG77 driver
+AF_INET     = BG77.AF_INET
+SOCK_DGRAM  = BG77.SOCK_DGRAM
+SOCK_CLIENT = BG77.SOCK_CLIENT
 
+#===========================================================================#
+#––– HARDWARE SETUP ––––––––––––––––––––––––––––––––––––––––––––––––––––––
+#===========================================================================#
+
+# NeoPixel on Pin28
+rgb_led = neopixel.NeoPixel(Pin(16), 1)
+
+# Physical button & fallback LED (unused, but still there)
 BUTTON = Pin(6, Pin.IN)
-LED = Pin(16, Pin.OUT)
+LED    = Pin(16, Pin.OUT)
 LED.value(0)
 
-last_press_pin18 = 0
-DEBOUNCE_MS = 50
+#===========================================================================#
+#––– NON-BLOCKING LED STATE MACHINE –––––––––––––––––––––––––––––––––––––
+#===========================================================================#
 
-sta_if = network.WLAN(network.STA_IF) 
+_led_state = None
+_led_timer = Timer(-1)
 
-def _set_rgb(r: float, g: float, b: float):
-    
-    rgb_led[0] = (int(255 * r), int(255 * g), int(255 * b))
+def _write_color(r, g, b):
+    rgb_led[0] = (int(255*r), int(255*g), int(255*b))
     rgb_led.write()
 
-
-def _blink(col, on_ms=200, off_ms=200, duration_ms=0):
-    start = time.ticks_ms()
-    while True:
-        _set_rgb(*col)            # LED ON
-        time.sleep_ms(on_ms)
-        _set_rgb(0, 0, 0)         # LED OFF
-        time.sleep_ms(off_ms)
-
-        if duration_ms and time.ticks_diff(time.ticks_ms(), start) >= duration_ms:
-            break
-
-
-# Public light-state primitives ----------------------------------------------
-def gate_opening(duration_s=3):
-    _blink((0, 1, 0), duration_ms=int(duration_s * 1000))
-
-
-def gate_open(duration_s=3):
-    _set_rgb(0, 1, 0)
-    time.sleep(duration_s)
-    _set_rgb(0, 0, 0)
-
-
-def gate_closing(duration_s=3):
-    _blink((0, 0, 1), duration_ms=int(duration_s * 1000))
-
-
-def gate_closed(duration_s=3):
-    _set_rgb(0, 0, 1)
-    time.sleep(duration_s)
-    _set_rgb(0, 0, 0)
-
-
-def waiting_for_server(blink_ms=300):
-    global _waiting
-    _waiting = True
-    try:
-        while _waiting:
-            _set_rgb(1, 0, 0)
-            time.sleep_ms(blink_ms)
-            _set_rgb(0, 0, 0)
-            time.sleep_ms(blink_ms)
-    finally:
-        _set_rgb(0, 0, 0)
-
-
-def fail_LED(duration_s=3):
-    _set_rgb(1, 0, 0)
-    time.sleep(duration_s)
-    _set_rgb(0, 0, 0)
-
-
-def stop_led():
-    global _waiting
-    _waiting = False
-    _set_rgb(0, 0, 0)
-
-lte = LTE()
-
-def wlan_handler():
-    if not sta_if.isconnected():
-        print("WLAN is not connected")
-        sta_if.active(True)
-        sta_if.connect(creds.WIFI_SSID,creds.WIFI_PWD)
-        while not sta_if.isconnected():
-            print("Trying to establish connection")
-            time.sleep(2)
-    if sta_if.isconnected():
-        print("WLAN connected to \'" + str(sta_if.config('ssid')) + "\' with ip " + str(sta_if.ipconfig('addr4')))
+def _led_blink(color, period_ms):
+    # toggle between color and off
+    if rgb_led[0] == (0,0,0):
+        _write_color(*color)
     else:
-        print("WLAN not connected")
+        _write_color(0,0,0)
 
-def debounce_pin(pin):
-    # wait for pin to change value
-    global last_press_pin18
-    debouncing = 1
-    active = 0
-    while active < DEBOUNCE_MS:
-        current_pin_state = pin.value()
-        if current_pin_state == last_press_pin18:
-            active += 1
+def _led_handler(timer):
+    # called every PERIOD ms to update the LED
+    if _led_state == "opening":
+        _led_blink((0,1,0), PERIOD)
+    elif _led_state == "closing":
+        _led_blink((0,0,1), PERIOD)
+    elif _led_state == "waiting":
+        _led_blink((1,0,0), PERIOD)
+    # solid states do not toggle here
+
+def set_led(state):
+    """
+    state in:
+      "opening", "open",
+      "closing", "closed",
+      "waiting", "fail", None
+    """
+    global _led_state
+    _led_state = state
+
+    # cancel any existing ticker
+    _led_timer.deinit()
+
+    if state in ("opening","closing","waiting"):
+        # start a periodic blink
+        _led_timer.init(period=PERIOD, mode=Timer.PERIODIC,
+                        callback=_led_handler)
+    elif state == "open":
+        _write_color(0,1,0)
+        time.sleep(DUR)           # short pause
+        _write_color(0,0,0)
+        _led_state = None
+    elif state == "closed":
+        _write_color(0,0,1)
+        time.sleep(DUR)
+        _write_color(0,0,0)
+        _led_state = None
+    elif state == "fail":
+        _write_color(1,0,0)
+        time.sleep(DUR)
+        _write_color(0,0,0)
+        _led_state = None
+    else:
+        # any other = off
+        _write_color(0,0,0)
+
+# you can tweak these to your taste:
+PERIOD = 300   # ms blink period
+DUR    = 3     # seconds for the “open”, “closed” and “fail” hold
+
+#===========================================================================#
+#––– BG77 MODEM SETUP ––––––––––––––––––––––––––––––––––––––––––––––––––––
+#===========================================================================#
+
+# UART0 → BG77
+bg_uart = UART(0, baudrate=115200, tx=Pin(0), rx=Pin(1))
+modem   = BG77.BG77(bg_uart, verbose=False)
+
+# configure APN & attach
+modem.setAPN(creds.APN)
+print("Attaching to NB-IoT…", end="")
+if not modem.attachToNetwork():
+    raise RuntimeError("BG77 attach failed")
+print(" ✓ attached")
+
+#===========================================================================#
+#––– BUTTON & DEBOUNCE (unchanged) ––––––––––––––––––––––––––––––––––––––––
+#===========================================================================#
+
+last = 0
+DB_MS = 50
+
+def debounce(pin):
+    global last
+    stable = 0
+    while stable < DB_MS:
+        v = pin.value()
+        if v == last:
+            stable += 1
         else:
-            active = 0
+            stable = 0
+        last = v
         time.sleep_ms(1)
-        last_press_pin18 = current_pin_state
-    return last_press_pin18
-            
-        
+    return last
 
-def button_handler(button):
-    global last_press_pin18
-    button_start = time.ticks_ms()
-    last_press_pin18 = button.value()
-    pin_read = 0
-    press_duration = 0
-    while not pin_read:
-        pin_read = debounce_pin(button)
-        press_duration = time.ticks_ms() - button_start
-        if press_duration > 3000:
+def button_handler(pin):
+    global last
+    t0 = time.ticks_ms()
+    last = pin.value()
+    while not debounce(pin):
+        if time.ticks_diff(time.ticks_ms(), t0) > 3000:
             break
-    if 200 <= press_duration <= 700:
+    dt = time.ticks_diff(time.ticks_ms(), t0)
+    if 200 <= dt <= 700:
         return "status"
-    elif 900 <= press_duration <= 2000:
+    if 900 <= dt <= 2000:
         return "action"
+    return None
 
-def lte_connect():
-    print("Attaching to NB-IoT network…")
-    lte.init()
-    lte.attach(apn=creds.APN)
-    while not lte.isattached():
-        print(".", end="")
-        time.sleep(1)
-    print("\nAttached, bringing up data connection…")
-    lte.connect()
-    while not lte.isconnected():
-        print(".", end="")
-        time.sleep(1)
-    ip, mask, gw, dns = lte.ifconfig()
-    print(f"NB-IoT up, IP={ip}")
+#===========================================================================#
+#––– UDP OVER NB-IOT –––––––––––––––––––––––––––––––––––––––––––––––––────
+#===========================================================================#
 
-# call once at startup
-lte_connect()
+def udp_handler(msg:str):
+    # start the red‐blink
+    set_led("waiting")
 
+    ok, sock = modem.socket(AF_INET, SOCK_DGRAM, socket_mode=SOCK_CLIENT)
+    if not ok:
+        print("socket() failed")
+        return _fail_and_return()
 
-def udp_handler(data):
-
-    waiting_for_server()
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("0.0.0.0", creds.UDP_PRIVATE_PORT))
-
-    try:
-        sock.sendto(data.encode("ascii"),
-                    (creds.UDP_SERVER_IP, creds.UDP_SERVER_PORT))
-    except Exception as e:
-        print("Send error:", e)
-    
-    sock.settimeout(2)
-    rec_data = ""
-    try:
-        pkt, peer = sock.recvfrom(1460)
-
-        if peer[0] == creds.UDP_SERVER_IP and peer[1] == creds.UDP_SERVER_PORT:
-            stop_led()
-            rec_data = pkt.decode().strip().upper()
-    except Exception:
-        pass
-    finally:
+    if not sock.connect(creds.UDP_SERVER_IP,
+                        creds.UDP_SERVER_PORT,
+                        creds.UDP_PRIVATE_PORT):
+        print("connect() failed")
         sock.close()
+        return _fail_and_return()
 
-    if rec_data:
-        if rec_data == "OPENING":
-            gate_opening()
-        elif rec_data == "OPEN":
-            gate_open()
-        elif rec_data == "CLOSING":
-            gate_closing()
-        elif rec_data == "CLOSED":
-            gate_closed()
-        else:
-            print("Unknown response:", rec_data)
+    if not sock.send(msg):
+        print("send() failed")
+        sock.close()
+        return _fail_and_return()
+
+    sock.settimeout(2)
+    length, data = sock.recv(1460)
+    sock.close()
+
+    if length and data:
+        rec = data.strip().upper()
+        dispatch(rec)
+        return rec
     else:
-        fail_LED()
+        return _fail_and_return()
 
-    return rec_data  
-    
-def irq_handler(BUTTON):
-    command = button_handler(BUTTON)
-    #print(message)
-    if command != "action" and command != "status":
+def _fail_and_return():
+    set_led("fail")
+    return ""
+
+def dispatch(state:str):
+    """
+    Call the right light sequence for your four states.
+    """
+    if   state == "OPENING": set_led("opening")
+    elif state == "OPEN":    set_led("open")
+    elif state == "CLOSING": set_led("closing")
+    elif state == "CLOSED":  set_led("closed")
+    else:                     print("Unknown reply:", state)
+
+#===========================================================================#
+#––– IRQ HANDLER & MAIN ––––––––––––––––––––––––––––––––––––––––––––––––––
+#===========================================================================#
+
+def irq_handler(pin):
+    cmd = button_handler(pin)
+    if not cmd: 
         return
-       
-    print(command)
-    
-    message = f"{creds.ID},{command}"
-    received = udp_handler(message)
-    
-    print(received)    
-    
+    print("→", cmd)
+    resp = udp_handler(f"{creds.ID},{cmd}")
+    print("←", resp)
 
-
-BUTTON.irq(handler = irq_handler, trigger=machine.Pin.IRQ_FALLING)
-
+BUTTON.irq(handler=irq_handler, trigger=Pin.IRQ_FALLING)
