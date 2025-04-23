@@ -2,5 +2,5 @@ UDP_SERVER_IP = "147.229.148.105"
 UDP_SERVER_PORT = 7006
 
 UDP_PRIVATE_PORT = 50480
-
 ID = 5656
+APN             = "lpwa.vodafone.iot"

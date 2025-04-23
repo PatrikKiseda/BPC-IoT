@@ -7,13 +7,13 @@
 #ID = 5656
 
 
-import network
-import creds
 import time
 import socket
-from machine import Pin, I2C
 import random
 import neopixel
+from machine import Pin
+from network import LTE
+import creds_remote as creds
 
 rgb_led = neopixel.NeoPixel(machine.Pin(28),1)
 
@@ -89,6 +89,7 @@ def stop_led():
     _waiting = False
     _set_rgb(0, 0, 0)
 
+lte = LTE()
 
 def wlan_handler():
     if not sta_if.isconnected():
@@ -136,29 +137,51 @@ def button_handler(button):
     elif 900 <= press_duration <= 2000:
         return "action"
 
+def lte_connect():
+    print("Attaching to NB-IoT network…")
+    lte.init()
+    lte.attach(apn=creds.APN)
+    while not lte.isattached():
+        print(".", end="")
+        time.sleep(1)
+    print("\nAttached, bringing up data connection…")
+    lte.connect()
+    while not lte.isconnected():
+        print(".", end="")
+        time.sleep(1)
+    ip, mask, gw, dns = lte.ifconfig()
+    print(f"NB-IoT up, IP={ip}")
+
+# call once at startup
+lte_connect()
+
+
 def udp_handler(data):
-    waiting_for_server()  
+
+    waiting_for_server()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    port = random.randint(49152,65535)
-    sock.bind(("0.0.0.0", port))
-    
+    sock.bind(("0.0.0.0", creds.UDP_PRIVATE_PORT))
+
     try:
-        sock.sendto(bytes(data,"ascii"),(creds.UDP_SERVER_IP,creds.UDP_SERVER_PORT))
-    except:
-        pass
+        sock.sendto(data.encode("ascii"),
+                    (creds.UDP_SERVER_IP, creds.UDP_SERVER_PORT))
+    except Exception as e:
+        print("Send error:", e)
     
     sock.settimeout(2)
-    
-    rec_data = []
+    rec_data = ""
     try:
-        pre_rec_data, clientsocket = sock.recvfrom(1460)
-        if clientsocket[0] == creds.UDP_SERVER_IP and clientsocket[1] == creds.UDP_SERVER_PORT:
-            stop_led()
-            rec_data = pre_rec_data.decode()
-    except:
-        pass
+        pkt, peer = sock.recvfrom(1460)
 
-    sock.close()
+        if peer[0] == creds.UDP_SERVER_IP and peer[1] == creds.UDP_SERVER_PORT:
+            stop_led()
+            rec_data = pkt.decode().strip().upper()
+    except Exception:
+        pass
+    finally:
+        sock.close()
+
     if rec_data:
         if rec_data == "OPENING":
             gate_opening()
@@ -169,13 +192,12 @@ def udp_handler(data):
         elif rec_data == "CLOSED":
             gate_closed()
         else:
-            print("Unknown response from server:", rec_data)
+            print("Unknown response:", rec_data)
     else:
         fail_LED()
+
     return rec_data  
     
-
-
 def irq_handler(BUTTON):
     command = button_handler(BUTTON)
     #print(message)
@@ -192,5 +214,4 @@ def irq_handler(BUTTON):
 
 
 BUTTON.irq(handler = irq_handler, trigger=machine.Pin.IRQ_FALLING)
-
 
