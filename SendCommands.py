@@ -27,11 +27,11 @@ def setup(module):
         #wait_for_attach(module) 
 
 
-        while not modem.isRegistered():
+        while not module.isRegistered():
             time.sleep(1)
 
         # Open socket
-        success, sock = modem.socket(AF_INET, SOCK_DGRAM, socket_mode=SOCK_CLIENT)
+        success, sock = module.socket(AF_INET, SOCK_DGRAM, socket_mode=SOCK_CLIENT)
         if not success:
             raise Exception("Failed to open socket")
 
@@ -100,6 +100,7 @@ time.sleep(5)
 
 data = "5656,action"
 response = send_and_receive_data(module, sock, data)
+
 
 
 
