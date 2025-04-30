@@ -218,23 +218,14 @@ def irq_handler(BUTTON):
        
     print(f"Command to server: {command}")
     message = f"{creds_remote.ID},{command}"
-    
+
     msg_encrypted = encrypt(message)
+
+    print("Encrypted (raw):", msg_encrypted)
     
-    print(msg_encrypted)
-    
-    #byte_data = bytes.fromhex(msg_encrypted)
-    hex_string = msg_encrypted.hex()
-    print(hex_string)
-    #string_data = hex_string.decode('utf-8')
-    
-    # Here will be the NB-IoT handler
-    #received = NB_IoT_Handler(message)
-    #received = nb_handler.nb_handler(message)
-    print(f"Msg_encrypted: {hex_string}")
-    
+    # ✅ Send raw bytes directly
     received = nb_handler.nb_handler(msg_encrypted)
-    
+
     print(f"Received: {received}")
     #msg_decrypted = decrypt_and_print(received)
     
