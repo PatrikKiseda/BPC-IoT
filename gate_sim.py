@@ -3,8 +3,8 @@ import asyncio
 import threading
 import random
 
-DOOR_OPERATION_TIME = 30
-COLLISION_PROBABILITY = 0.01
+DOOR_OPERATION_TIME = 10
+COLLISION_PROBABILITY = 0.005
 
 class DoorState:
     CLOSED = "CLOSED"
