@@ -55,7 +55,9 @@ def send_and_receive_data(module, sock, data):
         if isinstance(data, str):
             data = data.encode('utf-8')  # convert string to bytes
 
-        sock.send(data)  # sends bytes only
+        if not isinstance(data, bytes):
+        raise TypeError("Data must be bytes")
+        sock.send(data)
 
         sock.settimeout(5)
 
