@@ -51,24 +51,13 @@ def setup(module):
 #vlastna funkcia na posielanie
 def send_and_receive_data(module, sock, data):
     try:
-        #module.sendCommand("AT+QISEND=1,11\r\n")
-        #time.sleep(1)
-        #module.sendCommand(data + "\r\n")
-        #time.sleep(1)
+        # ✅ If data is str, encode it to bytes (legacy support)
+        if isinstance(data, str):
+            data = data.encode('utf-8')  # convert string to bytes
 
-        sock.send(data)
+        sock.send(data)  # sends bytes only
 
         sock.settimeout(5)
-
-        
-        #ret = module.sendCommand("AT+QIRD=1\r\n")
-        #time.sleep(1)
-        
-        #module.sendCommand("AT+QIRD=1\r\n")
-        #time.sleep(1)
-        
-        #module.sendCommand("AT+QIRD=1\r\n")
-        #time.sleep(1)
 
         length, received = sock.recv(100)
         if length > 0:
