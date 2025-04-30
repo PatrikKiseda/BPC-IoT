@@ -112,3 +112,18 @@ while True:
         print(f"🧾 Parsed message: {data}")
 
         if int(data[0]) in KNOWN_ID:
+            server_response = None
+            if data[1] == "status":
+                server_response = door.get_status()
+            elif data[1] == "action":
+                door.toggle()
+                time.sleep(0.01)
+                server_response = door.get_status()
+
+            if server_response is not None:
+                msg_encrypted = encrypt_msg(server_response)
+                sock.sendto(msg_encrypted, client_socket)
+                print(f"📤 Sent response to {client_socket} → {server_response}")
+
+    except Exception as err:
+        print(f"💥 Error in main loop: {err}")
