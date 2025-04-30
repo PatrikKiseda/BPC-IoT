@@ -79,9 +79,11 @@ door.start()
 while 1:
     message, client_socket = sock.recvfrom(1460)
     try:
-        msg_decrypted = decrypt_and_print(message, client_socket[0])
+        hex_str = message.decode('ascii')
+        raw = bytes.fromhex(hex_str)
+        msg_decrypted = decrypt_and_print(raw, client_socket[0])
         data = msg_decrypted.split(",")
-        #print(data)
+        print(data)
         if int(data[0]) in KNOWN_ID:
             server_response = None
             if data[1] == "status":
