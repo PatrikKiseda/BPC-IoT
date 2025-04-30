@@ -77,10 +77,12 @@ door = GarageDoor()
 door.start()
 
 while 1:
-    message, client_socket = sock.recvfrom(1460)
-    try:
-        hex_str = message.decode('ascii')
-        raw = bytes.fromhex(hex_str)
+        message, client_socket = sock.recvfrom(1460)
+        try:
+            hex_str = message.decode('ascii')
+            raw     = bytes.fromhex(hex_str)
+        except (UnicodeDecodeError, ValueError):
+            raw = message
         msg_decrypted = decrypt_and_print(raw, client_socket[0])
         data = msg_decrypted.split(",")
         print(data)
