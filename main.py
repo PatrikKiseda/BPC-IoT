@@ -38,35 +38,54 @@ def encrypt_msg(msg):
     #sock.sendto(packet, (PICO_IP, 8888))
     return packet
 
+
 def decrypt_and_print(data, addr='undef'):
-    print(f"RAW received data:{data}")
-    iv = data[:16]
+    """
+    Accepts:
+      • raw bytes:   b'\x12\x34…'
+      • ASCII-hex:   b'1234abcd…'
+      • literal "\\x12\\x34…" string
+    Converts to the true IV||cipher||MAC bytes, then does replay, HMAC & AES checks.
+    """
+
+    if isinstance(data, (bytes, bytearray)):
+        try:
+            txt = data.decode('ascii')
+            if len(txt) % 2 == 0 and all(c in "0123456789abcdefABCDEF" for c in txt):
+                data = bytes.fromhex(txt)
+        except UnicodeDecodeError:
+
+            pass
+    elif isinstance(data, str):
+        data = data.encode('utf-8').decode('unicode_escape').encode('latin-1')
+
+    if len(data) < 16+16:
+        print("❌ Packet too short from", addr)
+        return None
+
+    iv         = data[:16]
     ciphertext = data[16:-16]
-    mac = data[-16:]
+    mac        = data[-16:]
 
     if iv in remote_msg_q:
-        print("❌ Lately used IV. Probably replayed message", addr)
-        return
-    else:
-        remote_msg_q.append(iv)
+        print("❌ Replayed IV from", addr)
+        return None
+    remote_msg_q.append(iv)
 
-    expected_mac = hmac.new(HMAC_KEY, ciphertext, hashlib.sha256).digest()[:16]
-    if mac != expected_mac:
+    expected = hmac.new(HMAC_KEY, ciphertext, hashlib.sha256).digest()[:16]
+    if mac != expected:
         print("❌ HMAC check failed from", addr)
-        return
-
+        return None
+        
     cipher = AES.new(KEY, AES.MODE_CBC, iv)
     try:
         plaintext = unpad(cipher.decrypt(ciphertext))
-        #print("📩 From", addr, ":", plaintext.decode())
-        print("From", addr, ":", plaintext.decode())
-        return plaintext.decode()
-    except:
-        print("❌ Decrypt error from", addr)
+        text = plaintext.decode()
+        print(f"📩 From {addr}:", text)
+        return text
+    except Exception as e:
+        print("❌ Decrypt/unpad error from", addr, e)
         return None
-
-
-#-----------------------
 
 
 
